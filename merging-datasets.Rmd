@@ -65,13 +65,24 @@ data_pres <- read_csv("data/pres20results.csv")
 
 
 ```{r}
+data_vac %>% head()
+data_vac %>% dim()
 
+data_demo %>% head()
+data_demo %>% dim()
+
+data_pres %>% head()
+data_pres %>% dim()
 ```
 - renaming is necessary for `data_demo`
 - calculating voting percentage from the presidential election data
 
 
 ```{r}
+data_demo <- data_demo %>% rename(FIPS = CountyId)
+data_pres <- data_pres %>% rename(FIPS = fips)
+data_vac <- data_vac %>% mutate(FIPS = as.integer(FIPS))
+data_vac <- data_vac %>% mutate(Date = mdy(Date))
 
 ```
 
@@ -90,7 +101,10 @@ data_pres <- read_csv("data/pres20results.csv")
 - Do they match? (if not does this seem problematic)?
     
 ```{r}
+df_vac_counties <- data_vac %>% count(FIPS, Recip_County)
 
+df_vac_counties %>% 
+  anti_join(data_pres, by = 'FIPS') #tie kuriu truksta kitam datasete
 ```
 
 ## Keep the necessary data
@@ -100,7 +114,8 @@ data_pres <- read_csv("data/pres20results.csv")
 - From covid dataset, get the latest figures for each county
 
 ```{r}
-
+data_vac_latest <- data_vac %>%
+  group_by(FIPS)... #is ankstesnes paskaitos
 ```
 
 
@@ -124,7 +139,9 @@ presidential votes
   3. presidential votes
   
 ```{r}
-
+data_merged <- data_vac_latest %>%
+  inner_join(data_pres, by = "FIPS") %>%
+  inner_join(data_demo, by = "FIPS")
 ```
 
 ## Using the merged datasets 
@@ -135,7 +152,7 @@ presidential votes
 - `GGally::ggpairs()`, correlation plot (I showed in day 4 lecture)
 
 ```{r}
-
+ 
 ```
 ## Monthy-by-month correlations between Trump Vote and caccination takeup.
 
@@ -168,7 +185,9 @@ What we need to do is:
 - Convert dates to character
 
 ```{r}
-
+library(DBI)
+file.remove("~/covid.sqlite")
+db <- dbConnect(RSQLite::SQLite(), "~/covid.sqlite")
 ```
 
 
@@ -184,7 +203,13 @@ db <- dbConnect(RSQLite::SQLite(), "~/covid.sqlite")
 ### Create/populate tables
 
 ```{r}
+data_demo <- data_demo %>% select(!c(State, County))
+data_pres <- data_pres %>% select(-c(party, state, candidate, county))
+data_vac <- data_vac %>% mutate(Date = as.character(Date))
 
+dbWriteTable(db, name = "demo", data_demo)
+dbWriteTable(db, name = "pres", data_pres)
+dbWriteTable(db, name = "vac", data_vac)
 ```
 
 ### Disconnect
