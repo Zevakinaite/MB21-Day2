@@ -75,22 +75,30 @@ data_pres %>% head()
 data_pres %>% dim()
 ```
 - renaming is necessary for `data_demo`
-- calculating voting percentage from the presidential election data
-
 
 ```{r}
 data_demo <- data_demo %>% rename(FIPS = CountyId)
 data_pres <- data_pres %>% rename(FIPS = fips)
 data_vac <- data_vac %>% mutate(FIPS = as.integer(FIPS))
-data_vac <- data_vac %>% mutate(Date = mdy(Date))
-
+data_vac <- data_vac %>% mutate(Date = as.Date(Date, "%m/%d/%Y"))
 ```
-
+- calculating voting percentage from the presidential election data
+```{r}
+votes_president <- data_pres %>%
+  group_by(candidate) %>%
+  summarise(all_votes = n()) %>%
+  mutate(vote_percentage = all_votes/sum(all_votes)) %>%
+  arrange(desc(vote_percentage)) %>%
+  select(candidate, vote_percentage)
+```
 
 
 ### How many rows in each df?
 
 ```{r}
+data_vac %>% nrow()
+data_demo %>% nrow()
+data_pres %>% nrow()
 
 ```
 
@@ -101,10 +109,16 @@ data_vac <- data_vac %>% mutate(Date = mdy(Date))
 - Do they match? (if not does this seem problematic)?
     
 ```{r}
-df_vac_counties <- data_vac %>% count(FIPS, Recip_County)
+#data_vac %>% distinct(FIPS) %>% nrow() #3225
+#data_pres %>% distinct(FIPS) %>% nrow() #3145
+data_demo %>% distinct(FIPS) %>% nrow() #3220
 
-df_vac_counties %>% 
-  anti_join(data_pres, by = 'FIPS') #tie kuriu truksta kitam datasete
+#tie kuriu truksta kitam datasete
+data_demo %>%
+  anti_join(data_pres, by = "FIPS") #truksta 78 FIPS
+
+data_demo %>%
+  anti_join(data_vac, by = "FIPS") #netruksta
 ```
 
 ## Keep the necessary data
@@ -115,7 +129,8 @@ df_vac_counties %>%
 
 ```{r}
 data_vac_latest <- data_vac %>%
-  group_by(FIPS)... #is ankstesnes paskaitos
+  group_by(FIPS) %>%
+  filter(Date == max(Date))
 ```
 
 
@@ -125,7 +140,9 @@ presidential votes
   - Keep only trump vote rows
 
 ```{r}
-
+trump_votes <- data_pres %>% 
+  mutate(vote_pct = votes/total_votes) %>% 
+  filter(candidate == "Donald Trump")
 ```
 
 ## Merge the datasets
@@ -140,8 +157,8 @@ presidential votes
   
 ```{r}
 data_merged <- data_vac_latest %>%
-  inner_join(data_pres, by = "FIPS") %>%
-  inner_join(data_demo, by = "FIPS")
+  left_join(trump_votes, by = "FIPS") %>%
+  left_join(data_demo, by = "FIPS")
 ```
 
 ## Using the merged datasets 
@@ -152,7 +169,17 @@ data_merged <- data_vac_latest %>%
 - `GGally::ggpairs()`, correlation plot (I showed in day 4 lecture)
 
 ```{r}
+ data_merged %>% 
+  select(Series_Complete_Pop_Pct, Booster_Doses_18Plus_Vax_Pct, vote_pct, Hispanic, Black, IncomePerCap, Unemployment) %>% 
+  cor(use = "complete.obs")
+
+ data_merged %>% 
+  select(Series_Complete_Pop_Pct, Booster_Doses_18Plus_Vax_Pct, vote_pct, Hispanic, Black, IncomePerCap, Unemployment) %>% 
+  pairs()
  
+ data_merged %>% 
+  select(Series_Complete_Pop_Pct, Booster_Doses_18Plus_Vax_Pct, vote_pct, Hispanic, Black, IncomePerCap, Unemployment) %>% 
+  GGally::ggpairs()
 ```
 ## Monthy-by-month correlations between Trump Vote and caccination takeup.
 
@@ -163,9 +190,14 @@ data_merged <- data_vac_latest %>%
   3. Group data, calculate correnation each month
   4. Plot?
 
-
 ```{r}
-
+data_vac %>%
+  filter(Date == floor_date(Date, "month")) %>%
+  left_join(trump_votes, by = "FIPS") %>%
+  group_by(Date) %>%
+  summarize(cor_vote_vac = cor(vote_pct, Series_Complete_Pop_Pct, use = "pairwise.complete.obs")) %>%
+  ggplot(aes(x = Date, y = cor_vote_vac)) + geom_line()
+  
 ```
 
 ## Create a database
@@ -185,9 +217,7 @@ What we need to do is:
 - Convert dates to character
 
 ```{r}
-library(DBI)
-file.remove("~/covid.sqlite")
-db <- dbConnect(RSQLite::SQLite(), "~/covid.sqlite")
+data_vac %>% distinct() %>% dim()
 ```
 
 
@@ -203,9 +233,9 @@ db <- dbConnect(RSQLite::SQLite(), "~/covid.sqlite")
 ### Create/populate tables
 
 ```{r}
-data_demo <- data_demo %>% select(!c(State, County))
+data_demo <- data_demo %>% select(-c(State, County))
 data_pres <- data_pres %>% select(-c(party, state, candidate, county))
-data_vac <- data_vac %>% mutate(Date = as.character(Date))
+data_vac <- data_vac %>% mutate(Date = as.character(Date)) #SQLite does not have the (R) Date Format
 
 dbWriteTable(db, name = "demo", data_demo)
 dbWriteTable(db, name = "pres", data_pres)
